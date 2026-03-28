@@ -1,7 +1,30 @@
 package main
 
-import "fmt"
+import (
+	"log"
+	"time"
+
+	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
+	"github.com/igormakarovhimself/summarizer/internal/handler"
+	tele "gopkg.in/telebot.v3"
+)
 
 func main() {
-	fmt.Println("Hello, Go!")
+	b, err := tele.NewBot(tele.Settings{
+		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	speechClient := salutespeech.NewSaluteSpeechClient()
+
+	h := handler.NewTelegramHandler(b, speechClient)
+
+	b.Handle(tele.OnText, h.HandleText)
+	b.Handle(tele.OnAudio, h.HandleAudio)
+	b.Handle(tele.OnVoice, h.HandleVoice)
+
+	log.Println("bot started")
+	b.Start()
 }
