@@ -4,6 +4,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
 	"github.com/igormakarovhimself/summarizer/internal/handler"
 	tele "gopkg.in/telebot.v3"
@@ -19,7 +20,9 @@ func main() {
 
 	speechClient := salutespeech.NewSaluteSpeechClient()
 
-	h := handler.NewTelegramHandler(b, speechClient)
+	gigaClient := gigachat.NewGigaChatClient()
+
+	h := handler.NewTelegramHandler(b, speechClient, gigaClient)
 
 	b.Handle(tele.OnText, h.HandleText)
 	b.Handle(tele.OnAudio, h.HandleAudio)
