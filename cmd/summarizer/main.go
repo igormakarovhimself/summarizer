@@ -7,6 +7,7 @@ import (
 	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
 	"github.com/igormakarovhimself/summarizer/internal/handler"
+	"github.com/igormakarovhimself/summarizer/internal/repository"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -21,6 +22,14 @@ func main() {
 	speechClient := salutespeech.NewSaluteSpeechClient()
 
 	gigaClient := gigachat.NewGigaChatClient()
+
+	dsn := "postgres://postgres:postgres@localhost:5433/summarizer?sslmode=disable" // TODO: вынести в конфиг
+	db, err := repository.NewDB(dsn)
+	if err != nil {
+		log.Fatal("db: ", err)
+	}
+	defer db.Close()
+	log.Println("db connected")
 
 	h := handler.NewTelegramHandler(b, speechClient, gigaClient)
 
