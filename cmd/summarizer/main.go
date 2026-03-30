@@ -23,7 +23,6 @@ func main() {
 
 	gigaClient := gigachat.NewGigaChatClient()
 
-	dsn := "postgres://postgres:postgres@localhost:5433/summarizer?sslmode=disable" // TODO: вынести в конфиг
 	db, err := repository.NewDB(dsn)
 	if err != nil {
 		log.Fatal("db: ", err)
@@ -31,7 +30,9 @@ func main() {
 	defer db.Close()
 	log.Println("db connected")
 
-	h := handler.NewTelegramHandler(b, speechClient, gigaClient)
+	userRepo := repository.NewUserRepo(db)
+
+	h := handler.NewTelegramHandler(b, speechClient, gigaClient, userRepo)
 
 	b.Handle(tele.OnText, h.HandleText)
 	b.Handle(tele.OnAudio, h.HandleAudio)

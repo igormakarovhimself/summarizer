@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
+	"github.com/igormakarovhimself/summarizer/internal/repository"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -17,14 +19,16 @@ type TelegramHandler struct {
 	bot               *tele.Bot
 	speechClient      *salutespeech.SaluteSpeechClient
 	gigaClient        *gigachat.GigaChatClient
+	userRepo          *repository.UserRepo
 	lastTranscription map[int64]string // userID -> последняя транскрипция
 }
 
-func NewTelegramHandler(bot *tele.Bot, speechClient *salutespeech.SaluteSpeechClient, gigaClient *gigachat.GigaChatClient) *TelegramHandler {
+func NewTelegramHandler(bot *tele.Bot, speechClient *salutespeech.SaluteSpeechClient, gigaClient *gigachat.GigaChatClient, userRepo *repository.UserRepo) *TelegramHandler {
 	return &TelegramHandler{
 		bot:               bot,
 		speechClient:      speechClient,
 		gigaClient:        gigaClient,
+		userRepo:          userRepo,
 		lastTranscription: make(map[int64]string),
 	}
 }
@@ -36,7 +40,10 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 
 	switch {
 	case text == "/start":
-		_, err := h.bot.Send(user, "Привет! Я бот для конспектирования встреч.\n\nОтправь мне голосовое сообщение или аудиофайл — я расшифрую и сделаю краткую выжимку.\n\nКоманды:\n/chat <вопрос> — задать вопрос ИИ-ассистенту")
+		if err := h.userRepo.Upsert(context.Background(), user.ID, user.Username); err != nil {
+			log.Printf("upsert user %d: %v", user.ID, err)
+		}
+		_, err := h.bot.Send(user, "hi")
 		return err
 
 	case strings.HasPrefix(text, "/chat"):
@@ -50,7 +57,6 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		var err error
 		if transcript, ok := h.lastTranscription[user.ID]; ok {
 			log.Printf("chat from %d with context (%d chars): %s", user.ID, len(transcript), question)
-			h.bot.Send(user, "Думаю (с учётом последней транскрипции)...")
 			messages := []gigachat.Message{
 				{Role: "system", Content: "Ты — помощник для анализа встреч. Вот транскрипция последней встречи:\n\n" + transcript},
 				{Role: "user", Content: question},
@@ -58,16 +64,15 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 			answer, err = h.gigaClient.Chat(messages)
 		} else {
 			log.Printf("chat from %d without context: %s", user.ID, question)
-			h.bot.Send(user, "Думаю (транскрипций пока нет, отвечаю без контекста)...")
 			answer, err = h.gigaClient.Ask(question)
 		}
 		if err != nil {
 			log.Printf("gigachat err: %v", err)
-			h.bot.Send(user, "Ошибка GigaChat: "+err.Error())
+			_, err = h.bot.Send(user, "Не удалось получить ответ")
 			return err
 		}
 
-		_, err = h.bot.Send(user, "Ответ:\n"+answer)
+		_, err = h.bot.Send(user, answer)
 		return err
 
 	default:
@@ -81,17 +86,17 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 	audio := ctx.Message().Audio
 	log.Printf("audio from %d: %s, %d bytes, %ds", user.ID, audio.FileName, audio.FileSize, audio.Duration)
 
-	h.bot.Send(user, "Аудио получено, распознаю...")
-
 	fileData, err := h.downloadFile(audio.File)
 	if err != nil {
-		h.bot.Send(user, "Не удалось скачать файл: "+err.Error())
+		log.Printf("download err: %v", err)
+		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}
 
 	result, err := h.speechClient.Transcribe(bytes.NewReader(fileData), "audio/mpeg", "MP3")
 	if err != nil {
-		h.bot.Send(user, "Ошибка распознавания: "+err.Error())
+		log.Printf("transcribe err: %v", err)
+		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}
 
@@ -100,18 +105,15 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 
 	h.lastTranscription[user.ID] = transcriptionText
 
-	h.bot.Send(user, "Транскрипция:\n"+truncate(transcriptionText, 4000))
+	_, _ = h.bot.Send(user, "Транскрипция:\n"+truncate(transcriptionText, 4000))
 
-	h.bot.Send(user, "Делаю выжимку...")
 	summary, err := h.gigaClient.Summarize(transcriptionText)
 	if err != nil {
 		log.Printf("summarize err: %v", err)
-		h.bot.Send(user, "Ошибка суммаризации: "+err.Error())
-		return err
 	}
+	_ = summary // пригодится при сохранении в БД
 
-	_, err = h.bot.Send(user, "Выжимка:\n"+summary)
-	return err
+	return nil
 }
 
 func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
@@ -119,17 +121,17 @@ func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 	voice := ctx.Message().Voice
 	log.Printf("voice from %d: %d bytes, %ds", user.ID, voice.FileSize, voice.Duration)
 
-	h.bot.Send(user, "Голосовое получено, распознаю...")
-
 	fileData, err := h.downloadFile(voice.File)
 	if err != nil {
-		h.bot.Send(user, "Не удалось скачать файл: "+err.Error())
+		log.Printf("download err: %v", err)
+		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}
 
 	result, err := h.speechClient.Transcribe(bytes.NewReader(fileData), "audio/ogg;codecs=opus", "OPUS")
 	if err != nil {
-		h.bot.Send(user, "Ошибка распознавания: "+err.Error())
+		log.Printf("transcribe err: %v", err)
+		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}
 
@@ -138,18 +140,15 @@ func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 
 	h.lastTranscription[user.ID] = transcriptionText
 
-	h.bot.Send(user, "Транскрипция:\n"+truncate(transcriptionText, 4000))
+	_, _ = h.bot.Send(user, "Транскрипция:\n"+truncate(transcriptionText, 4000))
 
-	h.bot.Send(user, "Делаю выжимку...")
 	summary, err := h.gigaClient.Summarize(transcriptionText)
 	if err != nil {
 		log.Printf("summarize err: %v", err)
-		h.bot.Send(user, "Ошибка суммаризации: "+err.Error())
-		return err
 	}
+	_ = summary // пригодится при сохранении в БД
 
-	_, err = h.bot.Send(user, "Выжимка:\n"+summary)
-	return err
+	return nil
 }
 
 func (h *TelegramHandler) downloadFile(file tele.File) ([]byte, error) {
