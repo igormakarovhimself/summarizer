@@ -113,17 +113,60 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		return err
 
 	case strings.HasPrefix(text, "/chat"):
-		question := strings.TrimSpace(strings.TrimPrefix(text, "/chat"))
-		if question == "" {
+		args := strings.TrimSpace(strings.TrimPrefix(text, "/chat"))
+		if args == "" {
 			return nil
+		}
+
+		var meetingID int
+		var question string
+
+		parts := strings.SplitN(args, " ", 2)
+		if len(parts) == 2 {
+			if id, err := strconv.Atoi(parts[0]); err == nil {
+				meetingID = id
+				question = parts[1]
+			} else {
+				question = args
+			}
+		} else {
+			question = args
+		}
+
+		if strings.TrimSpace(question) == "" {
+			return nil
+		}
+
+		var transcript string
+
+		if meetingID > 0 {
+			m, err := h.meetingRepo.GetByID(context.Background(), meetingID)
+			if err != nil {
+				log.Printf("chat get meeting %d: %v", meetingID, err)
+			}
+			if m != nil && m.UserID == user.ID {
+				transcript = m.Transcription
+			}
+		} else {
+			if t, ok := h.lastTranscription[user.ID]; ok {
+				transcript = t
+			} else {
+				meetings, err := h.meetingRepo.ListByUser(context.Background(), user.ID)
+				if err != nil {
+					log.Printf("chat list meetings: %v", err)
+				}
+				if len(meetings) > 0 {
+					transcript = meetings[0].Transcription
+				}
+			}
 		}
 
 		var answer string
 		var err error
-		if transcript, ok := h.lastTranscription[user.ID]; ok {
+		if transcript != "" {
 			log.Printf("chat from %d with context (%d chars): %s", user.ID, len(transcript), question)
 			messages := []gigachat.Message{
-				{Role: "system", Content: "Ты — помощник для анализа встреч. Вот транскрипция последней встречи:\n\n" + transcript},
+				{Role: "system", Content: "Ты — помощник для анализа встреч. Вот транскрипция встречи:\n\n" + transcript},
 				{Role: "user", Content: question},
 			}
 			answer, err = h.gigaClient.Chat(messages)
