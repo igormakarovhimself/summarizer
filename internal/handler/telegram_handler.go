@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,11 +50,72 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		_, err := h.bot.Send(user, "hi")
 		return err
 
+	case text == "/list":
+		meetings, err := h.meetingRepo.ListByUser(context.Background(), user.ID)
+		if err != nil {
+			log.Printf("list meetings: %v", err)
+			return err
+		}
+		if len(meetings) == 0 {
+			_, err = h.bot.Send(user, "Встреч пока нет")
+			return err
+		}
+		var sb strings.Builder
+		for _, m := range meetings {
+			sb.WriteString(fmt.Sprintf("#%d — %s — %s\n", m.ID, m.Title, m.CreatedAt.Format("02.01.2006")))
+		}
+		_, err = h.bot.Send(user, sb.String())
+		return err
+
+	case strings.HasPrefix(text, "/get"):
+		idStr := strings.TrimSpace(strings.TrimPrefix(text, "/get"))
+		meetingID, err := strconv.Atoi(idStr)
+		if err != nil {
+			return nil
+		}
+		m, err := h.meetingRepo.GetByID(context.Background(), meetingID)
+		if err != nil {
+			log.Printf("get meeting %d: %v", meetingID, err)
+			return err
+		}
+		if m == nil || m.UserID != user.ID {
+			_, err = h.bot.Send(user, "meeting not found")
+			return err
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("#%d — %s\n\n", m.ID, m.Title))
+		if m.Summary != "" {
+			sb.WriteString(m.Summary + "\n\n")
+		}
+		sb.WriteString(truncate(m.Transcription, 3500))
+		_, err = h.bot.Send(user, sb.String())
+		return err
+
+	case strings.HasPrefix(text, "/find"):
+		keyword := strings.TrimSpace(strings.TrimPrefix(text, "/find"))
+		if keyword == "" {
+			return nil
+		}
+		meetings, err := h.meetingRepo.SearchByKeyword(context.Background(), user.ID, keyword)
+		if err != nil {
+			log.Printf("search meetings: %v", err)
+			return err
+		}
+		if len(meetings) == 0 {
+			_, err = h.bot.Send(user, "not found")
+			return err
+		}
+		var sb strings.Builder
+		for _, m := range meetings {
+			sb.WriteString(fmt.Sprintf("#%d — %s — %s\n", m.ID, m.Title, m.CreatedAt.Format("02.01.2006")))
+		}
+		_, err = h.bot.Send(user, sb.String())
+		return err
+
 	case strings.HasPrefix(text, "/chat"):
 		question := strings.TrimSpace(strings.TrimPrefix(text, "/chat"))
 		if question == "" {
-			_, err := h.bot.Send(user, "Использование: /chat <ваш вопрос>")
-			return err
+			return nil
 		}
 
 		var answer string
