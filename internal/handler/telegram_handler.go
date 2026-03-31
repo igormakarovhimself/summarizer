@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
@@ -20,15 +21,17 @@ type TelegramHandler struct {
 	speechClient      *salutespeech.SaluteSpeechClient
 	gigaClient        *gigachat.GigaChatClient
 	userRepo          *repository.UserRepo
-	lastTranscription map[int64]string // userID -> последняя транскрипция
+	meetingRepo       *repository.MeetingRepo
+	lastTranscription map[int64]string // userID -> последняя транскрипция (потом заменить на БД)
 }
 
-func NewTelegramHandler(bot *tele.Bot, speechClient *salutespeech.SaluteSpeechClient, gigaClient *gigachat.GigaChatClient, userRepo *repository.UserRepo) *TelegramHandler {
+func NewTelegramHandler(bot *tele.Bot, speechClient *salutespeech.SaluteSpeechClient, gigaClient *gigachat.GigaChatClient, userRepo *repository.UserRepo, meetingRepo *repository.MeetingRepo) *TelegramHandler {
 	return &TelegramHandler{
 		bot:               bot,
 		speechClient:      speechClient,
 		gigaClient:        gigaClient,
 		userRepo:          userRepo,
+		meetingRepo:       meetingRepo,
 		lastTranscription: make(map[int64]string),
 	}
 }
@@ -105,14 +108,25 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 
 	h.lastTranscription[user.ID] = transcriptionText
 
-	_, _ = h.bot.Send(user, "Транскрипция:\n"+truncate(transcriptionText, 4000))
-
 	summary, err := h.gigaClient.Summarize(transcriptionText)
 	if err != nil {
 		log.Printf("summarize err: %v", err)
+		summary = ""
 	}
-	_ = summary // пригодится при сохранении в БД
 
+	title := fmt.Sprintf("meeting %s", time.Now().Format("02.01.2006 15:04"))
+	meetingID, err := h.meetingRepo.Create(context.Background(), user.ID, title, transcriptionText, summary)
+	if err != nil {
+		log.Printf("save meeting: %v", err)
+		return err
+	}
+	log.Printf("meeting saved: id=%d, user=%d", meetingID, user.ID)
+
+	msg := fmt.Sprintf("meeting #%d saved", meetingID)
+	if summary != "" {
+		msg += "\neeting:\n" + summary
+	}
+	_, _ = h.bot.Send(user, msg)
 	return nil
 }
 
@@ -140,14 +154,25 @@ func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 
 	h.lastTranscription[user.ID] = transcriptionText
 
-	_, _ = h.bot.Send(user, "Транскрипция:\n"+truncate(transcriptionText, 4000))
-
 	summary, err := h.gigaClient.Summarize(transcriptionText)
 	if err != nil {
 		log.Printf("summarize err: %v", err)
+		summary = ""
 	}
-	_ = summary // пригодится при сохранении в БД
 
+	title := fmt.Sprintf("meeting %s", time.Now().Format("02.01.2006 15:04"))
+	meetingID, err := h.meetingRepo.Create(context.Background(), user.ID, title, transcriptionText, summary)
+	if err != nil {
+		log.Printf("save meeting: %v", err)
+		return err
+	}
+	log.Printf("meeting saved: id=%d, user=%d", meetingID, user.ID)
+
+	msg := fmt.Sprintf("meeting #%d saved", meetingID)
+	if summary != "" {
+		msg += "\neeting:\n" + summary
+	}
+	_, _ = h.bot.Send(user, msg)
 	return nil
 }
 
