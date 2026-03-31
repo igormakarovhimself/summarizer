@@ -1,4 +1,16 @@
 package service
 
+import (
+	"context"
+
+	"github.com/igormakarovhimself/summarizer/internal/repository"
+)
+
 type SummarizationService interface {
+	RegisterUser(ctx context.Context, telegramID int64, username string) error
+	ProcessAudio(ctx context.Context, userID int64, audioData []byte, contentType, encoding string) (int, string, error)
+	ListMeetings(ctx context.Context, userID int64) ([]repository.Meeting, error)
+	GetMeeting(ctx context.Context, userID int64, meetingID int) (*repository.Meeting, error)
+	SearchMeetings(ctx context.Context, userID int64, keyword string) ([]repository.Meeting, error)
+	AskQuestion(ctx context.Context, userID int64, meetingID int, question string) (string, error)
 }

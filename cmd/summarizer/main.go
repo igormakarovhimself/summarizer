@@ -8,6 +8,7 @@ import (
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
 	"github.com/igormakarovhimself/summarizer/internal/handler"
 	"github.com/igormakarovhimself/summarizer/internal/repository"
+	"github.com/igormakarovhimself/summarizer/internal/service"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -34,7 +35,9 @@ func main() {
 	userRepo := repository.NewUserRepo(db)
 	meetingRepo := repository.NewMeetingRepo(db)
 
-	h := handler.NewTelegramHandler(b, speechClient, gigaClient, userRepo, meetingRepo)
+	service := service.NewSummarizationService(speechClient, gigaClient, userRepo, meetingRepo)
+
+	h := handler.NewTelegramHandler(b, service)
 
 	b.Handle(tele.OnText, h.HandleText)
 	b.Handle(tele.OnAudio, h.HandleAudio)
