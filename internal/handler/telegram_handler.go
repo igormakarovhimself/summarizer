@@ -155,7 +155,7 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		answer, err := h.service.AskQuestion(context.Background(), user.ID, meetingID, question)
 		if err != nil {
 			h.logger.Errorf("gigachat err: %v", err)
-			_, err = h.bot.Send(user, "Не удалось получить ответ")
+			_, err = h.bot.Send(user, "Unable to get response")
 			return err
 		}
 
@@ -180,22 +180,24 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 	fileData, err := h.downloadFile(audio.File)
 	if err != nil {
 		h.logger.Errorf("download err: %v", err)
-		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
+		_, _ = h.bot.Send(user, "Unable to process audio")
 		return err
 	}
 
-	meetingID, summary, err := h.service.ProcessAudio(context.Background(), user.ID, fileData, "audio/mpeg", "MP3")
-	if err != nil {
-		h.logger.Errorf("process audio err: %v", err)
-		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
-		return err
-	}
+	h.service.SubmitAudio(user.ID, fileData, "audio/mpeg", "MP3", func(meetingID int, summary string, err error) {
+		if err != nil {
+			h.logger.Errorf("process audio err: %v", err)
+			h.bot.Send(user, "Unable to process audio")
+			return
+		}
+		msg := fmt.Sprintf("meeting #%d saved", meetingID)
+		if summary != "" {
+			msg += "\nMeeting:\n" + summary
+		}
+		h.bot.Send(user, msg)
+	})
 
-	msg := fmt.Sprintf("meeting #%d saved", meetingID)
-	if summary != "" {
-		msg += "\nMeeting:\n" + summary
-	}
-	_, _ = h.bot.Send(user, msg)
+	_, _ = h.bot.Send(user, "Обрабатываю аудио...")
 	return nil
 }
 
@@ -211,22 +213,24 @@ func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 	fileData, err := h.downloadFile(voice.File)
 	if err != nil {
 		h.logger.Errorf("download err: %v", err)
-		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
+		_, _ = h.bot.Send(user, "Unable to process audio")
 		return err
 	}
 
-	meetingID, summary, err := h.service.ProcessAudio(context.Background(), user.ID, fileData, "audio/ogg;codecs=opus", "OPUS")
-	if err != nil {
-		h.logger.Errorf("process voice err: %v", err)
-		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
-		return err
-	}
+	h.service.SubmitAudio(user.ID, fileData, "audio/ogg;codecs=opus", "OPUS", func(meetingID int, summary string, err error) {
+		if err != nil {
+			h.logger.Errorf("process voice err: %v", err)
+			h.bot.Send(user, "Unable to process audio")
+			return
+		}
+		msg := fmt.Sprintf("meeting #%d saved", meetingID)
+		if summary != "" {
+			msg += "\nMeeting:\n" + summary
+		}
+		h.bot.Send(user, msg)
+	})
 
-	msg := fmt.Sprintf("meeting #%d saved", meetingID)
-	if summary != "" {
-		msg += "\nMeeting:\n" + summary
-	}
-	_, _ = h.bot.Send(user, msg)
+	_, _ = h.bot.Send(user, "Обрабатываю аудио...")
 	return nil
 }
 

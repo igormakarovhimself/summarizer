@@ -13,6 +13,7 @@ import (
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
 	"github.com/igormakarovhimself/summarizer/internal/repository"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 type SummarizationServiceImpl struct {
@@ -23,15 +24,22 @@ type SummarizationServiceImpl struct {
 	logger            *zap.SugaredLogger
 	mu                sync.RWMutex
 	lastTranscription map[int64]string
+	group             *errgroup.Group
+	groupCtx          context.Context
+	cancelFunc        context.CancelFunc
 }
 
 func NewSummarizationService(
+	ctx context.Context,
 	speechClient *salutespeech.SaluteSpeechClient,
 	gigaClient *gigachat.GigaChatClient,
 	userRepo *repository.UserRepo,
 	meetingRepo *repository.MeetingRepo,
 	logger *zap.SugaredLogger,
 ) *SummarizationServiceImpl {
+	ctx, cancel := context.WithCancel(ctx)
+	g, gCtx := errgroup.WithContext(ctx)
+
 	return &SummarizationServiceImpl{
 		speechClient:      speechClient,
 		gigaClient:        gigaClient,
@@ -39,6 +47,9 @@ func NewSummarizationService(
 		meetingRepo:       meetingRepo,
 		logger:            logger,
 		lastTranscription: make(map[int64]string),
+		group:             g,
+		groupCtx:          gCtx,
+		cancelFunc:        cancel,
 	}
 }
 
@@ -137,6 +148,27 @@ func (s *SummarizationServiceImpl) AskQuestion(ctx context.Context, userID int64
 
 	s.logger.Infof("chat from %d without context: %s", userID, question)
 	return s.gigaClient.Ask(question)
+}
+
+func (s *SummarizationServiceImpl) SubmitAudio(userID int64, audioData []byte, contentType, encoding string, notify func(int, string, error)) {
+	s.group.Go(func() error {
+		meetingID, summary, err := s.ProcessAudio(s.groupCtx, userID, audioData, contentType, encoding)
+		notify(meetingID, summary, err)
+		return nil
+	})
+}
+
+func (s *SummarizationServiceImpl) Shutdown() {
+	s.logger.Infoln("shutting down audio processor...")
+	if s.cancelFunc != nil {
+		s.cancelFunc()
+	}
+	if s.group != nil {
+		if err := s.group.Wait(); err != nil {
+			s.logger.Errorf("processor shutdown: %v", err)
+		}
+	}
+	s.logger.Infoln("audio processor stopped")
 }
 
 func (s *SummarizationServiceImpl) extractTranscriptionText(raw []byte) string {

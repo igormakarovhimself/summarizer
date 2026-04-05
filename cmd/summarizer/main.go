@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -53,7 +54,7 @@ func main() {
 	userRepo := repository.NewUserRepo(db)
 	meetingRepo := repository.NewMeetingRepo(db)
 
-	svc := service.NewSummarizationService(speechClient, gigaClient, userRepo, meetingRepo, sugar)
+	svc := service.NewSummarizationService(context.Background(), speechClient, gigaClient, userRepo, meetingRepo, sugar)
 
 	h := handler.NewTelegramHandler(b, svc, sugar)
 
@@ -69,6 +70,7 @@ func main() {
 		<-sigint
 		sugar.Infoln("shutting down...")
 		b.Stop()
+		svc.Shutdown()
 		close(idleConnsClosed)
 	}()
 
