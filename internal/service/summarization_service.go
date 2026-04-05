@@ -8,6 +8,7 @@ import (
 
 type SummarizationService interface {
 	RegisterUser(ctx context.Context, telegramID int64, username string) error
+	IsRegistered(ctx context.Context, telegramID int64) (bool, error)
 	ProcessAudio(ctx context.Context, userID int64, audioData []byte, contentType, encoding string) (int, string, error)
 	ListMeetings(ctx context.Context, userID int64) ([]repository.Meeting, error)
 	GetMeeting(ctx context.Context, userID int64, meetingID int) (*repository.Meeting, error)

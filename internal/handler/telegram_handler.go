@@ -24,6 +24,20 @@ func NewTelegramHandler(bot *tele.Bot, svc service.SummarizationService) *Telegr
 	}
 }
 
+var errNotRegistered = fmt.Errorf("not registered")
+
+func (h *TelegramHandler) checkRegistered(ctx context.Context, user *tele.User) error {
+	ok, err := h.service.IsRegistered(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		_, _ = h.bot.Send(user, "Register first: /start")
+		return errNotRegistered
+	}
+	return nil
+}
+
 func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 	user := ctx.Sender()
 	text := ctx.Text()
@@ -38,6 +52,9 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		return err
 
 	case text == "/list":
+		if err := h.checkRegistered(context.Background(), user); err != nil {
+			return nil
+		}
 		meetings, err := h.service.ListMeetings(context.Background(), user.ID)
 		if err != nil {
 			log.Printf("list meetings: %v", err)
@@ -55,6 +72,9 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		return err
 
 	case strings.HasPrefix(text, "/get"):
+		if err := h.checkRegistered(context.Background(), user); err != nil {
+			return nil
+		}
 		idStr := strings.TrimSpace(strings.TrimPrefix(text, "/get"))
 		meetingID, err := strconv.Atoi(idStr)
 		if err != nil {
@@ -79,6 +99,9 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		return err
 
 	case strings.HasPrefix(text, "/find"):
+		if err := h.checkRegistered(context.Background(), user); err != nil {
+			return nil
+		}
 		keyword := strings.TrimSpace(strings.TrimPrefix(text, "/find"))
 		if keyword == "" {
 			return nil
@@ -100,6 +123,9 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		return err
 
 	case strings.HasPrefix(text, "/chat"):
+		if err := h.checkRegistered(context.Background(), user); err != nil {
+			return nil
+		}
 		args := strings.TrimSpace(strings.TrimPrefix(text, "/chat"))
 		if args == "" {
 			return nil
@@ -145,6 +171,10 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 	audio := ctx.Message().Audio
 	log.Printf("audio from %d: %s, %d bytes, %ds", user.ID, audio.FileName, audio.FileSize, audio.Duration)
 
+	if err := h.checkRegistered(context.Background(), user); err != nil {
+		return nil
+	}
+
 	fileData, err := h.downloadFile(audio.File)
 	if err != nil {
 		log.Printf("download err: %v", err)
@@ -171,6 +201,10 @@ func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 	user := ctx.Sender()
 	voice := ctx.Message().Voice
 	log.Printf("voice from %d: %d bytes, %ds", user.ID, voice.FileSize, voice.Duration)
+
+	if err := h.checkRegistered(context.Background(), user); err != nil {
+		return nil
+	}
 
 	fileData, err := h.downloadFile(voice.File)
 	if err != nil {

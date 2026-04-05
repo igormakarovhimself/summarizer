@@ -41,6 +41,10 @@ func (s *SummarizationServiceImpl) RegisterUser(ctx context.Context, telegramID 
 	return s.userRepo.Upsert(ctx, telegramID, username)
 }
 
+func (s *SummarizationServiceImpl) IsRegistered(ctx context.Context, telegramID int64) (bool, error) {
+	return s.userRepo.Exists(ctx, telegramID)
+}
+
 func (s *SummarizationServiceImpl) ProcessAudio(ctx context.Context, userID int64, audioData []byte, contentType, encoding string) (int, string, error) {
 	result, err := s.speechClient.Transcribe(bytes.NewReader(audioData), contentType, encoding)
 	if err != nil {
