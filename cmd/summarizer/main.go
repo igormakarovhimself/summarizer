@@ -2,6 +2,9 @@ package main
 
 import (
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/igormakarovhimself/summarizer/internal/config"
@@ -49,6 +52,20 @@ func main() {
 	b.Handle(tele.OnAudio, h.HandleAudio)
 	b.Handle(tele.OnVoice, h.HandleVoice)
 
+	idleConnsClosed := make(chan struct{})
+	sigint := make(chan os.Signal, 1)
+	signal.Notify(sigint, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+
+	go func() {
+		<-sigint
+		log.Println("shutting down...")
+		b.Stop()
+		close(idleConnsClosed)
+	}()
+
 	log.Println("bot started")
 	b.Start()
+
+	<-idleConnsClosed
+	log.Println("shutdown complete")
 }
