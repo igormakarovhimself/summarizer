@@ -1,0 +1,7 @@
+{
+  "telegram_token": "123456:ABC-DEF...",
+  "database_dsn": "postgres://postgres:postgres@localhost:5433/summarizer?sslmode=disable",
+  "salute_auth_key": "your-salute-auth-key",
+  "gigachat_auth_key": "your-gigachat-auth-key",
+  "cert_path": "certs"
+}
