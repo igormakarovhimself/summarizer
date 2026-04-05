@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	TelegramToken string `json:"telegram_token"`
-	DatabaseDSN   string `json:"database_dsn"`
-	SaluteAuthKey string `json:"salute_auth_key"`
+	TelegramToken   string `json:"telegram_token"`
+	DatabaseDSN     string `json:"database_dsn"`
+	SaluteAuthKey   string `json:"salute_auth_key"`
 	GigaChatAuthKey string `json:"gigachat_auth_key"`
+	CertPath        string `json:"cert_path"`
 }
 
 func Load() (*Config, error) {

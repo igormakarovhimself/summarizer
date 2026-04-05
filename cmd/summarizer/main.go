@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -40,9 +43,47 @@ func main() {
 		log.Fatal(err)
 	}
 
-	speechClient := salutespeech.NewSaluteSpeechClient(cfg.SaluteAuthKey, salutespeech.WithLogger(sugar))
+	var speechOpts []salutespeech.Option
+	var gigaOpts []gigachat.Option
 
-	gigaClient := gigachat.NewGigaChatClient(cfg.GigaChatAuthKey, gigachat.WithLogger(sugar))
+	speechOpts = append(speechOpts, salutespeech.WithLogger(sugar))
+	gigaOpts = append(gigaOpts, gigachat.WithLogger(sugar))
+
+	if cfg.CertPath != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+
+		files, err := filepath.Glob(filepath.Join(cfg.CertPath, "*.cer"))
+		if err != nil {
+			log.Fatal("glob certs: ", err)
+		}
+
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				log.Fatalf("read cert %s: %v", f, err)
+			}
+			cert, err := x509.ParseCertificate(data)
+			if err != nil {
+				log.Fatalf("parse cert %s: %v", f, err)
+			}
+			pool.AddCert(cert)
+			sugar.Infof("loaded cert: %s", f)
+		}
+
+		if len(files) > 0 {
+			tlsCfg := &tls.Config{RootCAs: pool}
+			speechOpts = append(speechOpts, salutespeech.WithTLSConfig(tlsCfg))
+			gigaOpts = append(gigaOpts, gigachat.WithTLSConfig(tlsCfg))
+		}
+		sugar.Infoln("custom TLS cert loaded")
+	}
+
+	speechClient := salutespeech.NewSaluteSpeechClient(cfg.SaluteAuthKey, speechOpts...)
+
+	gigaClient := gigachat.NewGigaChatClient(cfg.GigaChatAuthKey, gigaOpts...)
 
 	db, err := repository.NewDB(cfg.DatabaseDSN)
 	if err != nil {

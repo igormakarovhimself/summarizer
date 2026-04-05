@@ -47,15 +47,16 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
+func WithTLSConfig(tlsConfig *tls.Config) Option {
+	return func(c *GigaChatClient) {
+		c.httpClient.Transport = &http.Transport{TLSClientConfig: tlsConfig}
+	}
+}
+
 func NewGigaChatClient(authKey string, opts ...Option) *GigaChatClient {
 	c := &GigaChatClient{
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true, // TODO серт сбера
-				},
-			},
 		},
 		authKey: authKey,
 		logger:  zap.NewNop().Sugar(),

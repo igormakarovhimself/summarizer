@@ -48,17 +48,17 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
+func WithTLSConfig(tlsConfig *tls.Config) Option {
+	return func(c *SaluteSpeechClient) {
+		c.httpClient.Transport = &http.Transport{TLSClientConfig: tlsConfig}
+	}
+}
+
 func NewSaluteSpeechClient(authKey string, opts ...Option) *SaluteSpeechClient {
 	c := &SaluteSpeechClient{
-		httpClient: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true, // TODO серт сбера
-				},
-			},
-		},
-		authKey: authKey,
-		logger:  zap.NewNop().Sugar(),
+		httpClient: &http.Client{},
+		authKey:    authKey,
+		logger:     zap.NewNop().Sugar(),
 	}
 	for _, opt := range opts {
 		opt(c)
