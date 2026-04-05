@@ -4,6 +4,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/igormakarovhimself/summarizer/internal/config"
 	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
 	"github.com/igormakarovhimself/summarizer/internal/handler"
@@ -13,19 +14,24 @@ import (
 )
 
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("config: ", err)
+	}
+
 	b, err := tele.NewBot(tele.Settings{
+		Token:  cfg.TelegramToken,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	speechClient := salutespeech.NewSaluteSpeechClient()
+	speechClient := salutespeech.NewSaluteSpeechClient(cfg.SaluteAuthKey)
 
-	gigaClient := gigachat.NewGigaChatClient()
+	gigaClient := gigachat.NewGigaChatClient(cfg.GigaChatAuthKey)
 
-	dsn := "postgres://postgres:postgres@localhost:5433/summarizer?sslmode=disable" // TODO: вынести в конфиг
-	db, err := repository.NewDB(dsn)
+	db, err := repository.NewDB(cfg.DatabaseDSN)
 	if err != nil {
 		log.Fatal("db: ", err)
 	}
