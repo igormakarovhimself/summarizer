@@ -191,7 +191,7 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 
 	msg := fmt.Sprintf("meeting #%d saved", meetingID)
 	if summary != "" {
-		msg += "\neeting:\n" + summary
+		msg += "\nMeeting:\n" + summary
 	}
 	_, _ = h.bot.Send(user, msg)
 	return nil
@@ -222,7 +222,7 @@ func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 
 	msg := fmt.Sprintf("meeting #%d saved", meetingID)
 	if summary != "" {
-		msg += "\neeting:\n" + summary
+		msg += "\nMeeting:\n" + summary
 	}
 	_, _ = h.bot.Send(user, msg)
 	return nil
