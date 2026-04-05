@@ -32,8 +32,22 @@ type GigaChatClient struct {
 	logger         *zap.SugaredLogger
 }
 
-func NewGigaChatClient(authKey string, logger *zap.SugaredLogger) *GigaChatClient {
-	return &GigaChatClient{
+type Option func(*GigaChatClient)
+
+func WithLogger(logger *zap.SugaredLogger) Option {
+	return func(c *GigaChatClient) {
+		c.logger = logger
+	}
+}
+
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *GigaChatClient) {
+		c.httpClient.Timeout = timeout
+	}
+}
+
+func NewGigaChatClient(authKey string, opts ...Option) *GigaChatClient {
+	c := &GigaChatClient{
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second,
 			Transport: &http.Transport{
@@ -43,8 +57,12 @@ func NewGigaChatClient(authKey string, logger *zap.SugaredLogger) *GigaChatClien
 			},
 		},
 		authKey: authKey,
-		logger:  logger,
+		logger:  zap.NewNop().Sugar(),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *GigaChatClient) refreshToken() error {

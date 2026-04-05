@@ -34,8 +34,22 @@ type TaskStatus struct {
 	ResponseFileID string
 }
 
-func NewSaluteSpeechClient(authKey string, logger *zap.SugaredLogger) *SaluteSpeechClient {
-	return &SaluteSpeechClient{
+type Option func(*SaluteSpeechClient)
+
+func WithLogger(logger *zap.SugaredLogger) Option {
+	return func(c *SaluteSpeechClient) {
+		c.logger = logger
+	}
+}
+
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *SaluteSpeechClient) {
+		c.httpClient.Timeout = timeout
+	}
+}
+
+func NewSaluteSpeechClient(authKey string, opts ...Option) *SaluteSpeechClient {
+	c := &SaluteSpeechClient{
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
@@ -44,8 +58,12 @@ func NewSaluteSpeechClient(authKey string, logger *zap.SugaredLogger) *SaluteSpe
 			},
 		},
 		authKey: authKey,
-		logger:  logger,
+		logger:  zap.NewNop().Sugar(),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *SaluteSpeechClient) refreshToken() error {

@@ -39,9 +39,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	speechClient := salutespeech.NewSaluteSpeechClient(cfg.SaluteAuthKey, sugar)
+	speechClient := salutespeech.NewSaluteSpeechClient(cfg.SaluteAuthKey, salutespeech.WithLogger(sugar))
 
-	gigaClient := gigachat.NewGigaChatClient(cfg.GigaChatAuthKey, sugar)
+	gigaClient := gigachat.NewGigaChatClient(cfg.GigaChatAuthKey, gigachat.WithLogger(sugar))
 
 	db, err := repository.NewDB(cfg.DatabaseDSN)
 	if err != nil {
