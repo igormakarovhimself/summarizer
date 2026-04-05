@@ -29,6 +29,8 @@ type SummarizationServiceImpl struct {
 	cancelFunc        context.CancelFunc
 }
 
+const maxContextChars = 8000
+
 func NewSummarizationService(
 	ctx context.Context,
 	speechClient *salutespeech.SaluteSpeechClient,
@@ -121,20 +123,7 @@ func (s *SummarizationServiceImpl) AskQuestion(ctx context.Context, userID int64
 			transcript = m.Transcription
 		}
 	} else {
-		s.mu.RLock()
-		t, ok := s.lastTranscription[userID]
-		s.mu.RUnlock()
-		if ok {
-			transcript = t
-		} else {
-			meetings, err := s.meetingRepo.ListByUser(ctx, userID)
-			if err != nil {
-				s.logger.Errorf("chat list meetings: %v", err)
-			}
-			if len(meetings) > 0 {
-				transcript = meetings[0].Transcription
-			}
-		}
+		transcript = s.findRelevantContext(ctx, userID, question)
 	}
 
 	if transcript != "" {
@@ -169,6 +158,69 @@ func (s *SummarizationServiceImpl) Shutdown() {
 		}
 	}
 	s.logger.Infoln("audio processor stopped")
+}
+
+func (s *SummarizationServiceImpl) findRelevantContext(ctx context.Context, userID int64, question string) string {
+	meetings, err := s.meetingRepo.ListByUser(ctx, userID)
+	if err != nil {
+		s.logger.Errorf("list meetings for context: %v", err)
+		return ""
+	}
+	if len(meetings) == 0 {
+		return ""
+	}
+
+	summaries := make([]gigachat.MeetingSummary, len(meetings))
+	for i, m := range meetings {
+		summaries[i] = gigachat.MeetingSummary{ID: m.ID, Title: m.Title, Summary: m.Summary}
+	}
+
+	selectedIDs, err := s.gigaClient.SelectRelevantMeetings(question, summaries)
+	if err != nil {
+		s.logger.Errorf("select relevant meetings: %v", err)
+	}
+
+	if len(selectedIDs) > 0 {
+		idSet := make(map[int]bool, len(selectedIDs))
+		for _, id := range selectedIDs {
+			idSet[id] = true
+		}
+
+		var relevant []repository.Meeting
+		for _, m := range meetings {
+			if idSet[m.ID] {
+				relevant = append(relevant, m)
+			}
+		}
+
+		if len(relevant) > 0 {
+			s.logger.Infof("smart context: selected %d meetings: %v", len(relevant), selectedIDs)
+			return s.combineTranscriptions(relevant)
+		}
+	}
+
+	s.logger.Infoln("smart context: fallback to latest meeting")
+	return meetings[0].Transcription
+}
+
+func (s *SummarizationServiceImpl) combineTranscriptions(meetings []repository.Meeting) string {
+	var sb strings.Builder
+	for _, m := range meetings {
+		header := fmt.Sprintf("--- %s (id:%d) ---\n", m.Title, m.ID)
+		if sb.Len()+len(header)+len(m.Transcription) > maxContextChars {
+			remaining := maxContextChars - sb.Len() - len(header)
+			if remaining > 100 {
+				sb.WriteString(header)
+				sb.WriteString(string([]rune(m.Transcription)[:remaining]))
+				sb.WriteString("...\n")
+			}
+			break
+		}
+		sb.WriteString(header)
+		sb.WriteString(m.Transcription)
+		sb.WriteString("\n\n")
+	}
+	return sb.String()
 }
 
 func (s *SummarizationServiceImpl) extractTranscriptionText(raw []byte) string {

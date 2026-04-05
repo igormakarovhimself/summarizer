@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -63,6 +64,41 @@ func (r *MeetingRepo) ListByUser(ctx context.Context, userID int64) ([]Meeting, 
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list meetings: %w", err)
+	}
+	defer rows.Close()
+
+	var meetings []Meeting
+	for rows.Next() {
+		var m Meeting
+		if err := rows.Scan(&m.ID, &m.UserID, &m.Title, &m.Transcription, &m.Summary, &m.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan meeting: %w", err)
+		}
+		meetings = append(meetings, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+	return meetings, nil
+}
+
+func (r *MeetingRepo) SearchByKeywords(ctx context.Context, userID int64, keywords []string) ([]Meeting, error) {
+	if len(keywords) == 0 {
+		return nil, nil
+	}
+
+	parts := make([]string, len(keywords))
+	copy(parts, keywords)
+	tsquery := strings.Join(parts, " | ")
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, user_id, title, transcription, summary, created_at
+		 FROM meetings WHERE user_id = $1 AND tsv @@ to_tsquery('russian', $2)
+		 ORDER BY ts_rank(tsv, to_tsquery('russian', $2)) DESC
+		 LIMIT 5`,
+		userID, tsquery,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search by keywords: %w", err)
 	}
 	defer rows.Close()
 

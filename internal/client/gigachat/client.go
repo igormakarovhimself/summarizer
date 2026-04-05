@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,6 +176,49 @@ func (c *GigaChatClient) Summarize(text string) (string, error) {
 			Content: "Вот транскрипция встречи. Дай краткую выжимку — ключевые решения, ответственные, сроки:\n\n" + text,
 		},
 	})
+}
+
+type MeetingSummary struct {
+	ID      int
+	Title   string
+	Summary string
+}
+
+func (c *GigaChatClient) SelectRelevantMeetings(question string, meetings []MeetingSummary) ([]int, error) {
+	c.logger.Infof("gigachat: selecting relevant meetings for '%s' from %d meetings", truncate(question, 80), len(meetings))
+
+	var sb strings.Builder
+	for _, m := range meetings {
+		summary := m.Summary
+		if summary == "" {
+			summary = "(нет краткой выжимки)"
+		}
+		sb.WriteString(fmt.Sprintf("#%d — %s: %s\n", m.ID, m.Title, summary))
+	}
+
+	answer, err := c.Chat([]Message{
+		{
+			Role: "user",
+			Content: "Вот список встреч с краткими описаниями:\n\n" + sb.String() +
+				"\nКакие из этих встреч могут содержать ответ на вопрос пользователя? " +
+				"Верни только номера встреч через запятую, без пояснений. Если ни одна не подходит, верни 0.\n\n" +
+				"Вопрос: " + question,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []int
+	for _, part := range strings.Split(answer, ",") {
+		part = strings.TrimSpace(part)
+		part = strings.TrimPrefix(part, "#")
+		if id, err := strconv.Atoi(part); err == nil && id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	c.logger.Infof("gigachat: selected meetings: %v", ids)
+	return ids, nil
 }
 
 func (c *GigaChatClient) Ask(question string) (string, error) {
