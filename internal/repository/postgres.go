@@ -26,13 +26,19 @@ func NewDB(dsn string) (*sql.DB, error) {
 }
 
 func applyMigrations(db *sql.DB) error {
-	data, err := os.ReadFile("migrations/001_init.sql")
-	if err != nil {
-		return fmt.Errorf("read migration file: %w", err)
+	files := []string{
+		"migrations/001_init.sql",
+		"migrations/002_fulltext_search.sql",
 	}
 
-	if _, err := db.Exec(string(data)); err != nil {
-		return fmt.Errorf("exec migration: %w", err)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", f, err)
+		}
+		if _, err := db.Exec(string(data)); err != nil {
+			return fmt.Errorf("exec %s: %w", f, err)
+		}
 	}
 
 	return nil

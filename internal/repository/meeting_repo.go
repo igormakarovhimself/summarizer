@@ -81,12 +81,11 @@ func (r *MeetingRepo) ListByUser(ctx context.Context, userID int64) ([]Meeting, 
 }
 
 func (r *MeetingRepo) SearchByKeyword(ctx context.Context, userID int64, keyword string) ([]Meeting, error) {
-	pattern := "%" + keyword + "%"
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, user_id, title, transcription, summary, created_at
-		 FROM meetings WHERE user_id = $1 AND transcription ILIKE $2
+		 FROM meetings WHERE user_id = $1 AND tsv @@ plainto_tsquery('russian', $2)
 		 ORDER BY created_at DESC`,
-		userID, pattern,
+		userID, keyword,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search meetings: %w", err)
