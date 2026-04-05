@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
@@ -19,6 +20,7 @@ type SummarizationServiceImpl struct {
 	gigaClient        *gigachat.GigaChatClient
 	userRepo          *repository.UserRepo
 	meetingRepo       *repository.MeetingRepo
+	mu                sync.RWMutex
 	lastTranscription map[int64]string
 }
 
@@ -54,7 +56,9 @@ func (s *SummarizationServiceImpl) ProcessAudio(ctx context.Context, userID int6
 	transcription := extractTranscriptionText(result)
 	log.Printf("transcription: %d chars", len(transcription))
 
+	s.mu.Lock()
 	s.lastTranscription[userID] = transcription
+	s.mu.Unlock()
 
 	summary, err := s.gigaClient.Summarize(transcription)
 	if err != nil {
@@ -103,7 +107,10 @@ func (s *SummarizationServiceImpl) AskQuestion(ctx context.Context, userID int64
 			transcript = m.Transcription
 		}
 	} else {
-		if t, ok := s.lastTranscription[userID]; ok {
+		s.mu.RLock()
+		t, ok := s.lastTranscription[userID]
+		s.mu.RUnlock()
+		if ok {
 			transcript = t
 		} else {
 			meetings, err := s.meetingRepo.ListByUser(ctx, userID)
