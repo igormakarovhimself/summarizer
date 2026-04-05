@@ -4,23 +4,25 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strconv"
 	"strings"
 
 	"github.com/igormakarovhimself/summarizer/internal/service"
+	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
 )
 
 type TelegramHandler struct {
 	bot     *tele.Bot
 	service service.SummarizationService
+	logger  *zap.SugaredLogger
 }
 
-func NewTelegramHandler(bot *tele.Bot, svc service.SummarizationService) *TelegramHandler {
+func NewTelegramHandler(bot *tele.Bot, svc service.SummarizationService, logger *zap.SugaredLogger) *TelegramHandler {
 	return &TelegramHandler{
 		bot:     bot,
 		service: svc,
+		logger:  logger,
 	}
 }
 
@@ -41,12 +43,12 @@ func (h *TelegramHandler) checkRegistered(ctx context.Context, user *tele.User) 
 func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 	user := ctx.Sender()
 	text := ctx.Text()
-	log.Printf("text from %d: %s", user.ID, text)
+	h.logger.Infof("text from %d: %s", user.ID, text)
 
 	switch {
 	case text == "/start":
 		if err := h.service.RegisterUser(context.Background(), user.ID, user.Username); err != nil {
-			log.Printf("upsert user %d: %v", user.ID, err)
+			h.logger.Errorf("upsert user %d: %v", user.ID, err)
 		}
 		_, err := h.bot.Send(user, "hi")
 		return err
@@ -57,7 +59,7 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		}
 		meetings, err := h.service.ListMeetings(context.Background(), user.ID)
 		if err != nil {
-			log.Printf("list meetings: %v", err)
+			h.logger.Errorf("list meetings: %v", err)
 			return err
 		}
 		if len(meetings) == 0 {
@@ -82,7 +84,7 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		}
 		m, err := h.service.GetMeeting(context.Background(), user.ID, meetingID)
 		if err != nil {
-			log.Printf("get meeting %d: %v", meetingID, err)
+			h.logger.Errorf("get meeting %d: %v", meetingID, err)
 			return err
 		}
 		if m == nil {
@@ -108,7 +110,7 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 		}
 		meetings, err := h.service.SearchMeetings(context.Background(), user.ID, keyword)
 		if err != nil {
-			log.Printf("search meetings: %v", err)
+			h.logger.Errorf("search meetings: %v", err)
 			return err
 		}
 		if len(meetings) == 0 {
@@ -152,7 +154,7 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 
 		answer, err := h.service.AskQuestion(context.Background(), user.ID, meetingID, question)
 		if err != nil {
-			log.Printf("gigachat err: %v", err)
+			h.logger.Errorf("gigachat err: %v", err)
 			_, err = h.bot.Send(user, "Не удалось получить ответ")
 			return err
 		}
@@ -169,7 +171,7 @@ func (h *TelegramHandler) HandleText(ctx tele.Context) error {
 func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 	user := ctx.Sender()
 	audio := ctx.Message().Audio
-	log.Printf("audio from %d: %s, %d bytes, %ds", user.ID, audio.FileName, audio.FileSize, audio.Duration)
+	h.logger.Infof("audio from %d: %s, %d bytes, %ds", user.ID, audio.FileName, audio.FileSize, audio.Duration)
 
 	if err := h.checkRegistered(context.Background(), user); err != nil {
 		return nil
@@ -177,14 +179,14 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 
 	fileData, err := h.downloadFile(audio.File)
 	if err != nil {
-		log.Printf("download err: %v", err)
+		h.logger.Errorf("download err: %v", err)
 		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}
 
 	meetingID, summary, err := h.service.ProcessAudio(context.Background(), user.ID, fileData, "audio/mpeg", "MP3")
 	if err != nil {
-		log.Printf("process audio err: %v", err)
+		h.logger.Errorf("process audio err: %v", err)
 		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}
@@ -200,7 +202,7 @@ func (h *TelegramHandler) HandleAudio(ctx tele.Context) error {
 func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 	user := ctx.Sender()
 	voice := ctx.Message().Voice
-	log.Printf("voice from %d: %d bytes, %ds", user.ID, voice.FileSize, voice.Duration)
+	h.logger.Infof("voice from %d: %d bytes, %ds", user.ID, voice.FileSize, voice.Duration)
 
 	if err := h.checkRegistered(context.Background(), user); err != nil {
 		return nil
@@ -208,14 +210,14 @@ func (h *TelegramHandler) HandleVoice(ctx tele.Context) error {
 
 	fileData, err := h.downloadFile(voice.File)
 	if err != nil {
-		log.Printf("download err: %v", err)
+		h.logger.Errorf("download err: %v", err)
 		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}
 
 	meetingID, summary, err := h.service.ProcessAudio(context.Background(), user.ID, fileData, "audio/ogg;codecs=opus", "OPUS")
 	if err != nil {
-		log.Printf("process voice err: %v", err)
+		h.logger.Errorf("process voice err: %v", err)
 		_, _ = h.bot.Send(user, "Не удалось обработать аудио")
 		return err
 	}

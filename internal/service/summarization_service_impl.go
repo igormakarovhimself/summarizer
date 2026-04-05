@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
 	"github.com/igormakarovhimself/summarizer/internal/repository"
+	"go.uber.org/zap"
 )
 
 type SummarizationServiceImpl struct {
@@ -20,6 +20,7 @@ type SummarizationServiceImpl struct {
 	gigaClient        *gigachat.GigaChatClient
 	userRepo          *repository.UserRepo
 	meetingRepo       *repository.MeetingRepo
+	logger            *zap.SugaredLogger
 	mu                sync.RWMutex
 	lastTranscription map[int64]string
 }
@@ -29,12 +30,14 @@ func NewSummarizationService(
 	gigaClient *gigachat.GigaChatClient,
 	userRepo *repository.UserRepo,
 	meetingRepo *repository.MeetingRepo,
+	logger *zap.SugaredLogger,
 ) *SummarizationServiceImpl {
 	return &SummarizationServiceImpl{
 		speechClient:      speechClient,
 		gigaClient:        gigaClient,
 		userRepo:          userRepo,
 		meetingRepo:       meetingRepo,
+		logger:            logger,
 		lastTranscription: make(map[int64]string),
 	}
 }
@@ -53,8 +56,8 @@ func (s *SummarizationServiceImpl) ProcessAudio(ctx context.Context, userID int6
 		return 0, "", fmt.Errorf("transcribe: %w", err)
 	}
 
-	transcription := extractTranscriptionText(result)
-	log.Printf("transcription: %d chars", len(transcription))
+	transcription := s.extractTranscriptionText(result)
+	s.logger.Infof("transcription: %d chars", len(transcription))
 
 	s.mu.Lock()
 	s.lastTranscription[userID] = transcription
@@ -62,7 +65,7 @@ func (s *SummarizationServiceImpl) ProcessAudio(ctx context.Context, userID int6
 
 	summary, err := s.gigaClient.Summarize(transcription)
 	if err != nil {
-		log.Printf("summarize err: %v", err)
+		s.logger.Errorf("summarize err: %v", err)
 		summary = ""
 	}
 
@@ -71,7 +74,7 @@ func (s *SummarizationServiceImpl) ProcessAudio(ctx context.Context, userID int6
 	if err != nil {
 		return 0, "", fmt.Errorf("save meeting: %w", err)
 	}
-	log.Printf("meeting saved: id=%d, user=%d", meetingID, userID)
+	s.logger.Infof("meeting saved: id=%d, user=%d", meetingID, userID)
 
 	return meetingID, summary, nil
 }
@@ -101,7 +104,7 @@ func (s *SummarizationServiceImpl) AskQuestion(ctx context.Context, userID int64
 	if meetingID > 0 {
 		m, err := s.meetingRepo.GetByID(ctx, meetingID)
 		if err != nil {
-			log.Printf("chat get meeting %d: %v", meetingID, err)
+			s.logger.Errorf("chat get meeting %d: %v", meetingID, err)
 		}
 		if m != nil && m.UserID == userID {
 			transcript = m.Transcription
@@ -115,7 +118,7 @@ func (s *SummarizationServiceImpl) AskQuestion(ctx context.Context, userID int64
 		} else {
 			meetings, err := s.meetingRepo.ListByUser(ctx, userID)
 			if err != nil {
-				log.Printf("chat list meetings: %v", err)
+				s.logger.Errorf("chat list meetings: %v", err)
 			}
 			if len(meetings) > 0 {
 				transcript = meetings[0].Transcription
@@ -124,7 +127,7 @@ func (s *SummarizationServiceImpl) AskQuestion(ctx context.Context, userID int64
 	}
 
 	if transcript != "" {
-		log.Printf("chat from %d with context (%d chars): %s", userID, len(transcript), question)
+		s.logger.Infof("chat from %d with context (%d chars): %s", userID, len(transcript), question)
 		messages := []gigachat.Message{
 			{Role: "system", Content: "Ты — помощник для анализа встреч. Вот транскрипция встречи:\n\n" + transcript},
 			{Role: "user", Content: question},
@@ -132,18 +135,18 @@ func (s *SummarizationServiceImpl) AskQuestion(ctx context.Context, userID int64
 		return s.gigaClient.Chat(messages)
 	}
 
-	log.Printf("chat from %d without context: %s", userID, question)
+	s.logger.Infof("chat from %d without context: %s", userID, question)
 	return s.gigaClient.Ask(question)
 }
 
-func extractTranscriptionText(raw []byte) string {
+func (s *SummarizationServiceImpl) extractTranscriptionText(raw []byte) string {
 	var items []struct {
 		Results []struct {
 			NormalizedText string `json:"normalized_text"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(raw, &items); err != nil {
-		log.Printf("cant parse transcription json: %v", err)
+		s.logger.Errorf("cant parse transcription json: %v", err)
 		return string(raw)
 	}
 

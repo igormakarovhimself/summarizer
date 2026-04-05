@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 const (
@@ -29,9 +29,10 @@ type GigaChatClient struct {
 	authKey        string
 	accessToken    string
 	tokenExpiresAt time.Time
+	logger         *zap.SugaredLogger
 }
 
-func NewGigaChatClient(authKey string) *GigaChatClient {
+func NewGigaChatClient(authKey string, logger *zap.SugaredLogger) *GigaChatClient {
 	return &GigaChatClient{
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second,
@@ -42,6 +43,7 @@ func NewGigaChatClient(authKey string) *GigaChatClient {
 			},
 		},
 		authKey: authKey,
+		logger:  logger,
 	}
 }
 
@@ -50,7 +52,7 @@ func (c *GigaChatClient) refreshToken() error {
 		return nil
 	}
 
-	log.Println("gigachat: refreshing token")
+	c.logger.Infoln("gigachat: refreshing token")
 
 	req, err := http.NewRequest("POST", oauthURL+"/api/v2/oauth", strings.NewReader("scope=GIGACHAT_API_PERS"))
 	if err != nil {
@@ -84,7 +86,7 @@ func (c *GigaChatClient) refreshToken() error {
 
 	c.accessToken = result.AccessToken
 	c.tokenExpiresAt = time.UnixMilli(result.ExpiresAt)
-	log.Printf("gigachat: token ok, expires %s", time.Until(c.tokenExpiresAt).Round(time.Second))
+	c.logger.Infof("gigachat: token ok, expires %s", time.Until(c.tokenExpiresAt).Round(time.Second))
 
 	return nil
 }
@@ -105,7 +107,7 @@ func (c *GigaChatClient) Chat(messages []Message) (string, error) {
 		return "", fmt.Errorf("gigachat marshal: %w", err)
 	}
 
-	log.Printf("gigachat: sending %d bytes", len(reqBytes))
+	c.logger.Infof("gigachat: sending %d bytes", len(reqBytes))
 
 	req, err := http.NewRequest("POST", apiURL+"/api/v1/chat/completions", bytes.NewReader(reqBytes))
 	if err != nil {
@@ -143,12 +145,12 @@ func (c *GigaChatClient) Chat(messages []Message) (string, error) {
 	}
 
 	answer := result.Choices[0].Message.Content
-	log.Printf("gigachat: got answer, %d chars", len(answer))
+	c.logger.Infof("gigachat: got answer, %d chars", len(answer))
 	return answer, nil
 }
 
 func (c *GigaChatClient) Summarize(text string) (string, error) {
-	log.Printf("gigachat: summarize %d chars", len(text))
+	c.logger.Infof("gigachat: summarize %d chars", len(text))
 	return c.Chat([]Message{
 		{
 			Role:    "user",
@@ -158,7 +160,7 @@ func (c *GigaChatClient) Summarize(text string) (string, error) {
 }
 
 func (c *GigaChatClient) Ask(question string) (string, error) {
-	log.Printf("gigachat: ask '%s'", truncate(question, 80))
+	c.logger.Infof("gigachat: ask '%s'", truncate(question, 80))
 	return c.Chat([]Message{
 		{
 			Role:    "user",

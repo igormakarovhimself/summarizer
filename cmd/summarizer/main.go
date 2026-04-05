@@ -7,9 +7,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/igormakarovhimself/summarizer/internal/config"
+	"go.uber.org/zap"
+
 	"github.com/igormakarovhimself/summarizer/internal/client/gigachat"
 	"github.com/igormakarovhimself/summarizer/internal/client/salutespeech"
+	"github.com/igormakarovhimself/summarizer/internal/config"
 	"github.com/igormakarovhimself/summarizer/internal/handler"
 	"github.com/igormakarovhimself/summarizer/internal/repository"
 	"github.com/igormakarovhimself/summarizer/internal/service"
@@ -22,6 +24,13 @@ func main() {
 		log.Fatal("config: ", err)
 	}
 
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		log.Fatal("logger: ", err)
+	}
+	defer func() { _ = logger.Sync() }()
+	sugar := logger.Sugar()
+
 	b, err := tele.NewBot(tele.Settings{
 		Token:  cfg.TelegramToken,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -30,23 +39,23 @@ func main() {
 		log.Fatal(err)
 	}
 
-	speechClient := salutespeech.NewSaluteSpeechClient(cfg.SaluteAuthKey)
+	speechClient := salutespeech.NewSaluteSpeechClient(cfg.SaluteAuthKey, sugar)
 
-	gigaClient := gigachat.NewGigaChatClient(cfg.GigaChatAuthKey)
+	gigaClient := gigachat.NewGigaChatClient(cfg.GigaChatAuthKey, sugar)
 
 	db, err := repository.NewDB(cfg.DatabaseDSN)
 	if err != nil {
 		log.Fatal("db: ", err)
 	}
 	defer db.Close()
-	log.Println("db connected")
+	sugar.Infoln("db connected")
 
 	userRepo := repository.NewUserRepo(db)
 	meetingRepo := repository.NewMeetingRepo(db)
 
-	service := service.NewSummarizationService(speechClient, gigaClient, userRepo, meetingRepo)
+	svc := service.NewSummarizationService(speechClient, gigaClient, userRepo, meetingRepo, sugar)
 
-	h := handler.NewTelegramHandler(b, service)
+	h := handler.NewTelegramHandler(b, svc, sugar)
 
 	b.Handle(tele.OnText, h.HandleText)
 	b.Handle(tele.OnAudio, h.HandleAudio)
@@ -58,14 +67,14 @@ func main() {
 
 	go func() {
 		<-sigint
-		log.Println("shutting down...")
+		sugar.Infoln("shutting down...")
 		b.Stop()
 		close(idleConnsClosed)
 	}()
 
-	log.Println("bot started")
+	sugar.Infoln("bot started")
 	b.Start()
 
 	<-idleConnsClosed
-	log.Println("shutdown complete")
+	sugar.Infoln("shutdown complete")
 }

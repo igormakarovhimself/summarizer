@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 const (
@@ -26,6 +26,7 @@ type SaluteSpeechClient struct {
 	authKey        string
 	accessToken    string
 	tokenExpiresAt time.Time
+	logger         *zap.SugaredLogger
 }
 
 type TaskStatus struct {
@@ -33,7 +34,7 @@ type TaskStatus struct {
 	ResponseFileID string
 }
 
-func NewSaluteSpeechClient(authKey string) *SaluteSpeechClient {
+func NewSaluteSpeechClient(authKey string, logger *zap.SugaredLogger) *SaluteSpeechClient {
 	return &SaluteSpeechClient{
 		httpClient: &http.Client{
 			Transport: &http.Transport{
@@ -43,6 +44,7 @@ func NewSaluteSpeechClient(authKey string) *SaluteSpeechClient {
 			},
 		},
 		authKey: authKey,
+		logger:  logger,
 	}
 }
 
@@ -51,7 +53,7 @@ func (c *SaluteSpeechClient) refreshToken() error {
 		return nil
 	}
 
-	log.Println("salute: refreshing token")
+	c.logger.Infoln("salute: refreshing token")
 
 	req, err := http.NewRequest("POST", oauthURL+"/api/v2/oauth", strings.NewReader("scope=SALUTE_SPEECH_PERS"))
 	if err != nil {
@@ -84,7 +86,7 @@ func (c *SaluteSpeechClient) refreshToken() error {
 
 	c.accessToken = result.AccessToken
 	c.tokenExpiresAt = time.UnixMilli(result.ExpiresAt)
-	log.Printf("salute: token ok, expires %s", time.Until(c.tokenExpiresAt).Round(time.Second))
+	c.logger.Infof("salute: token ok, expires %s", time.Until(c.tokenExpiresAt).Round(time.Second))
 
 	return nil
 }
@@ -122,7 +124,7 @@ func (c *SaluteSpeechClient) UploadFile(r io.Reader, contentType string) (string
 		return "", fmt.Errorf("upload decode: %w", err)
 	}
 
-	log.Printf("salute: uploaded, file_id=%s", result.Result.RequestFileID)
+	c.logger.Infof("salute: uploaded, file_id=%s", result.Result.RequestFileID)
 	return result.Result.RequestFileID, nil
 }
 
@@ -173,7 +175,7 @@ func (c *SaluteSpeechClient) CreateTask(fileID string, encoding string) (string,
 		return "", fmt.Errorf("create task decode: %w", err)
 	}
 
-	log.Printf("salute: task %s created", result.Result.ID)
+	c.logger.Infof("salute: task %s created", result.Result.ID)
 	return result.Result.ID, nil
 }
 
@@ -252,7 +254,7 @@ func (c *SaluteSpeechClient) DownloadResult(responseFileID string) ([]byte, erro
 }
 
 func (c *SaluteSpeechClient) Transcribe(r io.Reader, contentType string, audioEncoding string) ([]byte, error) {
-	log.Println("salute: starting transcription")
+	c.logger.Infoln("salute: starting transcription")
 
 	fileID, err := c.UploadFile(r, contentType)
 	if err != nil {
@@ -277,7 +279,7 @@ func (c *SaluteSpeechClient) Transcribe(r io.Reader, contentType string, audioEn
 			return nil, fmt.Errorf("transcribe poll: %w", err)
 		}
 
-		log.Printf("salute: poll #%d -> %s", i, status.Status)
+		c.logger.Infof("salute: poll #%d -> %s", i, status.Status)
 
 		switch status.Status {
 		case "DONE":
@@ -288,7 +290,7 @@ func (c *SaluteSpeechClient) Transcribe(r io.Reader, contentType string, audioEn
 			if err != nil {
 				return nil, fmt.Errorf("transcribe download: %w", err)
 			}
-			log.Printf("salute: transcription done, %d bytes", len(data))
+			c.logger.Infof("salute: transcription done, %d bytes", len(data))
 			return data, nil
 
 		case "ERROR":
